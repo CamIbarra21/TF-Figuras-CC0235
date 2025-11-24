@@ -1,116 +1,20 @@
 import tempfile
 import os
-from flask import Flask, request, redirect, send_file
+from flask import Flask, render_template, request, redirect, send_file
 from skimage import io
 import base64
 import glob
 import numpy as np
+import zipfile
+import io as io_module
+
+figuras = ["circulo", "cuadrado", "rectangulo", "triangulo", "rombo", "ovalo", "corazon"]
 
 app = Flask(__name__)
 
-main_html = """
-<html>
-<head>
-<title>Letras UPC para PDI</title>
-</head>
-<script>
-  var mousePressed = false;
-  var lastX, lastY;
-  var ctx;
-
-   function getRndInteger(min, max) {
-    return Math.floor(Math.random() * (max - min) ) + min;
-   }
-
-  function InitThis() {
-      ctx = document.getElementById('myCanvas').getContext("2d");
-
-
-      numero = getRndInteger(0, 10);
-      letra = ["U", "P", "C"];
-      random = Math.floor(Math.random() * letra.length);
-      aleatorio = letra[random];
-
-      document.getElementById('mensaje').innerHTML  = 'Dibujando la letra ' + aleatorio;
-      document.getElementById('numero').value = aleatorio;
-
-      $('#myCanvas').mousedown(function (e) {
-          mousePressed = true;
-          Draw(e.pageX - $(this).offset().left, e.pageY - $(this).offset().top, false);
-      });
-
-      $('#myCanvas').mousemove(function (e) {
-          if (mousePressed) {
-              Draw(e.pageX - $(this).offset().left, e.pageY - $(this).offset().top, true);
-          }
-      });
-
-      $('#myCanvas').mouseup(function (e) {
-          mousePressed = false;
-      });
-  	    $('#myCanvas').mouseleave(function (e) {
-          mousePressed = false;
-      });
-  }
-
-  function Draw(x, y, isDown) {
-      if (isDown) {
-          ctx.beginPath();
-          ctx.strokeStyle = 'black';
-          ctx.lineWidth = 11;
-          ctx.lineJoin = "round";
-          ctx.moveTo(lastX, lastY);
-          ctx.lineTo(x, y);
-          ctx.closePath();
-          ctx.stroke();
-      }
-      lastX = x; lastY = y;
-  }
-
-  function clearArea() {
-      // Use the identity matrix while clearing the canvas
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-  }
-
-  //https://www.askingbox.com/tutorial/send-html5-canvas-as-image-to-server
-  function prepareImg() {
-     var canvas = document.getElementById('myCanvas');
-     document.getElementById('myImage').value = canvas.toDataURL();
-  }
-
-
-
-</script>
-<body onload="InitThis();">
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>
-    <script type="text/javascript" ></script>
-    <div align="left">
-      <img src="https://upload.wikimedia.org/wikipedia/commons/f/fc/UPC_logo_transparente.png" width="150"/>
-    </div>
-    <div align="center">
-        <h1 id="mensaje">Dibujando...</h1>
-        <canvas id="myCanvas" width="200" height="200" style="border:2px solid black"></canvas>
-        <br/>
-        <br/>
-        <button onclick="javascript:clearArea();return false;">Borrar</button>
-    </div>
-    <div align="center">
-      <form method="post" action="upload" onsubmit="javascript:prepareImg();"  enctype="multipart/form-data">
-      <input id="numero" name="numero" type="hidden" value="">
-      <input id="myImage" name="myImage" type="hidden" value="">
-      <input id="bt_upload" type="submit" value="Enviar">
-      </form>
-    </div>
-</body>
-</html>
-
-"""
-
-
 @app.route("/")
 def main():
-    return(main_html)
+    return render_template("main.html")
 
 
 @app.route('/upload', methods=['POST'])
@@ -134,20 +38,31 @@ def upload():
 @app.route('/prepare', methods=['GET'])
 def prepare_dataset():
     images = []
-    d = ["U", "P", "C"]
+    #d = ["U", "P", "C"]
+    #f = ["circulo", "cuadrado", "rectangulo", "triangulo", "rombo", "ovalo", "corazon"]
     digits = []
-    for digit in d:
-      filelist = glob.glob('{}/*.png'.format(digit))
+
+    for figura in figuras:
+      filelist = glob.glob('{}/*.png'.format(figura))
       images_read = io.concatenate_images(io.imread_collection(filelist))
       images_read = images_read[:, :, :, 3]
-      digits_read = np.array([digit] * images_read.shape[0])
+      digits_read = np.array([figura] * images_read.shape[0])
       images.append(images_read)
       digits.append(digits_read)
+
     images = np.vstack(images)
     digits = np.concatenate(digits)
     np.save('X.npy', images)
     np.save('y.npy', digits)
-    return "OK!"
+    
+    # Crear un archivo ZIP con los dos archivos
+    zip_buffer = io_module.BytesIO()
+    with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+        zip_file.write('X.npy', arcname='X.npy')
+        zip_file.write('y.npy', arcname='y.npy')
+    
+    zip_buffer.seek(0)
+    return send_file(zip_buffer, mimetype='application/zip', as_attachment=True, download_name='dataset.zip')
 
 
 @app.route('/X.npy', methods=['GET'])
@@ -161,8 +76,8 @@ def download_y():
 
 
 if __name__ == "__main__":
-    digits = ["U", "P", "C"]
-    for d in digits:
-        if not os.path.exists(str(d)):
-            os.mkdir(str(d))
-    app.run()
+    for figura in figuras:
+        if not os.path.exists(figura):
+            os.mkdir(figura)
+
+    app.run(debug=True)
